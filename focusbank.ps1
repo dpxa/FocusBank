@@ -1,28 +1,29 @@
 param ( 
-    [int]$ArgMinutes = -1,
+    [int]$SetTodayMinutes = -1,
     [int]$SetDefaultMinutes = -1,
     [int]$AddMinutes = 0,
-    [int]$SubtractMinutes = 0
+    [int]$SubtractMinutes = 0,
+    [int]$SetDefaultHours = -1,
+    [int]$SetTodayHours = -1,
+    [int]$AddHours = 0,
+    [int]$SubtractHours = 0
 )
 
-# --- Constants ---
+# Constants
 $SaveFileName = "focusbank_data.json" 
 $SaveFilePath = Join-Path -Path $PSScriptRoot -ChildPath $SaveFileName 
 $HardcodedDefaultMins = 8 * 60 
 
-# --- State Variable Initialization ---
-$CurrentDayStartMins = $HardcodedDefaultMins # Default minutes for a new day in the current session.
-$SaveFileDefaultMins = $HardcodedDefaultMins # Default minutes to be saved in the JSON configuration.
-# Initialize to yesterday to ensure daily reset logic triggers correctly on first run or if no save file.
-$LastRun = (Get-Date).AddDays(-1).Date 
+# State Variable Initialization
+$CurrentDayStartMins = $HardcodedDefaultMins 
+$SaveFileDefaultMins = $HardcodedDefaultMins 
+$LastRun = (Get-Date).AddDays(-1).Date # Initialize to yesterday to ensure daily reset logic triggers correctly.
 $Streak = 0 
-# Initialize to two days ago to ensure streak logic evaluates correctly on first run.
-$LastStreakUpdate = (Get-Date).AddDays(-2).Date 
-# $PrevDayEndSecs tracks the bank state at the end of the *previous* day for streak logic.
-$PrevDayEndSecs = 1 
-$JsonData = $null # Holds the parsed content of the save file.
+$LastStreakUpdate = (Get-Date).AddDays(-2).Date # Initialize to two days ago for correct streak evaluation on first run.
+$PrevDayEndSecs = 1 # Default to non-zero to distinguish from an actual empty bank for streak logic on first run.
+$JsonData = $null
 
-# --- Load Saved State ---
+# Load Saved State
 if (Test-Path $SaveFilePath) { 
     try { 
         $JsonData = Get-Content $SaveFilePath | ConvertFrom-Json 
@@ -67,44 +68,70 @@ if (Test-Path $SaveFilePath) {
     }
 }
 
-# --- Process Command-Line Arguments for Defaults ---
-# $MinsLoadedFromFileOrHardcoded captures the state of CurrentDayStartMins after file load, before CLI args might change it.
+# Process Command-Line Arguments
+# $MinsLoadedFromFileOrHardcoded captures $CurrentDayStartMins state after file load, before CLI modifications.
 $MinsLoadedFromFileOrHardcoded = $CurrentDayStartMins 
 
-if ($SetDefaultMinutes -gt 0) {
+# Apply CLI arguments for the default time to be saved ($SaveFileDefaultMins).
+# These also provisionally set $CurrentDayStartMins (new day default for this session), unless overridden by SetToday* args.
+if ($SetDefaultHours -gt 0) {
+    $calculatedMins = $SetDefaultHours * 60
+    $SaveFileDefaultMins = $calculatedMins
+    $CurrentDayStartMins = $calculatedMins 
+    Write-Host "Daily default setting will be updated to $SetDefaultHours hours ($calculatedMins minutes) upon saving (due to -SetDefaultHours)."
+} elseif ($SetDefaultHours -ne -1) {
+    Write-Warning "Invalid command-line value for SetDefaultHours: '$SetDefaultHours'. This parameter is ignored for default setting."
+}
+
+if ($SetDefaultMinutes -gt 0) { # Takes precedence over SetDefaultHours for $SaveFileDefaultMins
     $SaveFileDefaultMins = $SetDefaultMinutes
-    $CurrentDayStartMins = $SetDefaultMinutes # New default also applies to current session if it's a new day.
-    Write-Host "Daily default setting will be updated to $SetDefaultMinutes minutes upon saving."
+    $CurrentDayStartMins = $SetDefaultMinutes 
+    Write-Host "Daily default setting will be updated to $SetDefaultMinutes minutes upon saving (due to -SetDefaultMinutes)."
+} elseif ($SetDefaultMinutes -ne -1) {
+    Write-Warning "Invalid command-line value for SetDefaultMinutes: '$SetDefaultMinutes'. This parameter is ignored for default setting."
 }
 
-# Announce if using a default loaded from file, provided it wasn't just overridden by SetDefaultMinutes and won't be by ArgMinutes.
-if ($CurrentDayStartMins -ne $HardcodedDefaultMins -and $CurrentDayStartMins -eq $MinsLoadedFromFileOrHardcoded -and $ArgMinutes -eq -1) { 
-    Write-Host "Using configured daily default (from file): $CurrentDayStartMins minutes."
+# Announce if using a file-configured default, if not overridden by SetDefault* or SetToday* CLI args.
+if ($CurrentDayStartMins -eq $MinsLoadedFromFileOrHardcoded -and `
+    $MinsLoadedFromFileOrHardcoded -ne $HardcodedDefaultMins -and `
+    $SetTodayMinutes -eq -1 -and $SetTodayHours -eq -1) {
+    Write-Host "Using configured daily default (from file): $MinsLoadedFromFileOrHardcoded minutes for new day sessions."
 }
 
-if ($ArgMinutes -gt 0) { 
-    if ($CurrentDayStartMins -ne $ArgMinutes) { 
-        Write-Host "Command-line override for this session's daily default: $ArgMinutes minutes."
+# Apply CLI arguments for *this session's* starting time if it's a new day ($CurrentDayStartMins).
+# These override any previously determined $CurrentDayStartMins for the current session only and do NOT affect $SaveFileDefaultMins.
+if ($SetTodayHours -gt 0) {
+    $calculatedMins = $SetTodayHours * 60
+    if ($CurrentDayStartMins -ne $calculatedMins) { 
+        Write-Host "Command-line override for this session's new day start time: $SetTodayHours hours ($calculatedMins minutes) (due to -SetTodayHours)."
     }
-    $CurrentDayStartMins = $ArgMinutes # ArgMinutes overrides the daily default for this session if it's a new day.
-} elseif ($ArgMinutes -ne -1) { 
-    Write-Warning "Invalid command-line value for ArgMinutes: '$ArgMinutes'. Using daily default of $CurrentDayStartMins minutes."
+    $CurrentDayStartMins = $calculatedMins
+} elseif ($SetTodayHours -ne -1) {
+    Write-Warning "Invalid command-line value for SetTodayHours: '$SetTodayHours'. Using current default of $CurrentDayStartMins minutes for this session's new day start time."
 }
 
-# --- Determine Current Session Time ---
-$CurrentDate = (Get-Date).Date 
-$RemainingSeconds = $CurrentDayStartMins * 60 # Default for a new day.
+if ($SetTodayMinutes -gt 0) { # Takes precedence over SetTodayHours for $CurrentDayStartMins
+    if ($CurrentDayStartMins -ne $SetTodayMinutes) { 
+        Write-Host "Command-line override for this session's new day start time: $SetTodayMinutes minutes (due to -SetTodayMinutes)."
+    }
+    $CurrentDayStartMins = $SetTodayMinutes
+} elseif ($SetTodayMinutes -ne -1) {
+    Write-Warning "Invalid command-line value for SetTodayMinutes: '$SetTodayMinutes'. Using current default of $CurrentDayStartMins minutes for this session's new day start time."
+}
 
-if (($CurrentDate -eq $LastRun)) { # Same day as last run.
+# Determine Current Session Time
+$CurrentDate = (Get-Date).Date 
+$RemainingSeconds = $CurrentDayStartMins * 60 # Default for a new day, potentially modified by CLI args.
+
+if (($CurrentDate -eq $LastRun)) { # Same day as last run
     if ($null -ne $JsonData -and $null -ne $JsonData.RemainingMinutes) {
         try {
-            # Load remaining minutes from the saved session for today.
             $loadedMins = [int]$JsonData.RemainingMinutes
             if ($loadedMins -lt 0) { 
                 Write-Warning "Loaded 'RemainingMinutes' ('$loadedMins') for current session is negative. Resetting to 0."
                 $loadedMins = 0
             }
-            $RemainingSeconds = $loadedMins * 60
+            $RemainingSeconds = $loadedMins * 60 # Override with saved session time
             Write-Host "Loaded saved session: $loadedMins minutes from $($LastRun.ToString('yyyy-MM-dd'))."
         } catch {
              Write-Warning "Error parsing 'RemainingMinutes' ('$($JsonData.RemainingMinutes)') for current session. Using daily default for session time."
@@ -112,23 +139,38 @@ if (($CurrentDate -eq $LastRun)) { # Same day as last run.
     }
 }
 
-# --- Apply Time Adjustments ---
+# Apply Ad-hoc Time Adjustments
+if ($AddHours -gt 0) {
+    $RemainingSeconds += ($AddHours * 60 * 60)
+    Write-Host "Added $AddHours hour(s). New time: $([Math]::Ceiling($RemainingSeconds/60)) min."
+}
 if ($AddMinutes -gt 0) {
     $RemainingSeconds += ($AddMinutes * 60)
-    Write-Host "Added $AddMinutes minutes. New time: $([Math]::Ceiling($RemainingSeconds/60)) min."
-}
-if ($SubtractMinutes -gt 0) {
-    $secsToSubtract = $SubtractMinutes * 60
-    if ($RemainingSeconds -ge $secsToSubtract) {
-        $RemainingSeconds -= $secsToSubtract
-    } else {
-        $RemainingSeconds = 0 # Prevent negative time.
-        Write-Warning "Tried to subtract $SubtractMinutes min, but less available. Time set to 0."
-    }
-    Write-Host "Subtracted $SubtractMinutes minutes. New time: $([Math]::Ceiling($RemainingSeconds/60)) min."
+    Write-Host "Added $AddMinutes minute(s). New time: $([Math]::Ceiling($RemainingSeconds/60)) min."
 }
 
-# --- Initial Status Messages ---
+if ($SubtractHours -gt 0) {
+    $secsToSubtractFromHours = $SubtractHours * 60 * 60
+    if ($RemainingSeconds -ge $secsToSubtractFromHours) {
+        $RemainingSeconds -= $secsToSubtractFromHours
+    } else {
+        $RemainingSeconds = 0 
+        Write-Warning "Tried to subtract $SubtractHours hour(s), but less available. Time set to 0."
+    }
+    Write-Host "Subtracted $SubtractHours hour(s). New time: $([Math]::Ceiling($RemainingSeconds/60)) min."
+}
+if ($SubtractMinutes -gt 0) {
+    $secsToSubtractFromMinutes = $SubtractMinutes * 60
+    if ($RemainingSeconds -ge $secsToSubtractFromMinutes) {
+        $RemainingSeconds -= $secsToSubtractFromMinutes
+    } else {
+        $RemainingSeconds = 0 
+        Write-Warning "Tried to subtract $SubtractMinutes minute(s), but less available. Time set to 0."
+    }
+    Write-Host "Subtracted $SubtractMinutes minute(s). New time: $([Math]::Ceiling($RemainingSeconds/60)) min."
+}
+
+# Initial Status Messages
 if (-not (Test-Path $SaveFilePath)) {
     Write-Host "No save file found. Starting new session with $CurrentDayStartMins minutes default."
 }
@@ -136,7 +178,7 @@ if (-not (Test-Path $SaveFilePath)) {
 if ($CurrentDate -gt $LastRun) { 
     $duration = $CurrentDayStartMins
     $unit = "minute(s)"
-    if (($CurrentDayStartMins % 60) -eq 0) {
+    if (($CurrentDayStartMins % 60) -eq 0 -and $CurrentDayStartMins -ne 0) { # Check for non-zero to avoid "0 hours"
         $duration = $CurrentDayStartMins / 60
         $unit = if ($duration -eq 1) { "hour" } else { "hours" }
     }
@@ -145,26 +187,26 @@ if ($CurrentDate -gt $LastRun) {
     Write-Host "Focus bank empty from session on $($LastRun.ToString('yyyy-MM-dd')). Waiting for new day to reset."
 }
 
-# --- Streak Logic ---
+# Streak Logic
 if ($CurrentDate -gt $LastStreakUpdate) { 
-    if (($LastStreakUpdate.AddDays(1)) -eq $CurrentDate) { 
-        if ($PrevDayEndSecs -le 0) { 
+    if (($LastStreakUpdate.AddDays(1)) -eq $CurrentDate) { # Consecutive day
+        if ($PrevDayEndSecs -le 0) { # Bank was empty at end of previous tracked day
             $Streak++ 
-            Write-Host "Bank empty on $($LastStreakUpdate.ToString('yyyy-MM-dd')). Streak advanced! Current: $Streak day(s)."
+            Write-Host "Streak advances! Day $Streak."
         } else { 
             $Streak = 0 
-            Write-Host "Bank not empty on $($LastStreakUpdate.ToString('yyyy-MM-dd')) (had $([Math]::Ceiling($PrevDayEndSecs / 60)) min left). Streak reset."
+            Write-Host "Streak Reset. Day 0."
         }
-    } else { 
+    } else { # Not a consecutive day or first run after a gap
         $Streak = 0 
-        Write-Host "Streak reset (non-consecutive day or first run)."
+        Write-Host "Streak Reset. Day 0."
     }
     $LastStreakUpdate = $CurrentDate 
 } else { 
-    Write-Host ("Current streak: $Streak day(s)." + $(if ($Streak -eq 0) {" Complete today to advance."} else {""}))
+    Write-Host ("Current streak: Day $Streak." + $(if ($Streak -eq 0) {" Complete today to advance."} else {""}))
 }
 
-# --- Timer Execution ---
+# Timer Execution
 try { 
     if ($RemainingSeconds -le 0) { 
         Write-Host "No focus time remaining for today." 
@@ -182,14 +224,14 @@ try {
 catch { Write-Warning "Unexpected error during timer." }
 finally { 
     $saveMins = [Math]::Ceiling($RemainingSeconds / 60) 
-    if ($saveMins -lt 0) { $saveMins = 0 } 
+    if ($saveMins -lt 0) { $saveMins = 0 } # Ensure saved minutes are not negative
 
     $saveDataObj = @{ 
         RemainingMinutes = $saveMins 
         LastRunDate      = (Get-Date).ToString("o") 
         Streak           = $Streak 
         LastStreakUpdateDate = $LastStreakUpdate.ToString("o") 
-        ConfiguredInitialMinutes = $SaveFileDefaultMins # Persist the potentially updated daily default.
+        ConfiguredInitialMinutes = $SaveFileDefaultMins 
     }
     
     try { 
