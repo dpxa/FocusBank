@@ -20,7 +20,7 @@ $SaveFileDefaultMins = $HardcodedDefaultMins
 $LastRun = (Get-Date).AddDays(-1).Date # Initialize to yesterday to ensure daily reset logic triggers correctly.
 $Streak = 0 
 $LastStreakUpdate = (Get-Date).AddDays(-2).Date # Initialize to two days ago for correct streak evaluation on first run.
-$PrevDayEndSecs = 1 # Default to non-zero to distinguish from an actual empty bank for streak logic on first run.
+$StoredSecs = 1 # Default to non-zero to distinguish from an actual empty bank for streak logic on first run.
 $JsonData = $null
 
 # Load Saved State
@@ -42,8 +42,8 @@ if (Test-Path $SaveFilePath) {
             try {
                 $remMins = [int]$JsonData.RemainingMinutes
                 if ($remMins -ge 0) { 
-                    $PrevDayEndSecs = $remMins * 60 
-                } else { Write-Warning "Invalid 'RemainingMinutes' ('$remMins') in save file (negative value). Value ignored for PrevDayEndSecs." }
+                    $StoredSecs = $remMins * 60 
+                } else { Write-Warning "Invalid 'RemainingMinutes' ('$remMins') in save file (negative value). Value ignored for StoredSecs." }
             } catch { Write-Warning "Error parsing 'RemainingMinutes' ('$($JsonData.RemainingMinutes)') from save file. Error: $($_.Exception.Message)" }
         }
         if ($null -ne $JsonData.LastRunDate) {
@@ -78,7 +78,7 @@ if ($SetDefaultHours -gt 0) {
     $calculatedMins = $SetDefaultHours * 60
     $SaveFileDefaultMins = $calculatedMins
     $CurrentDayStartMins = $calculatedMins 
-    Write-Host "Daily default setting will be updated to $SetDefaultHours hours ($calculatedMins minutes) upon saving (due to -SetDefaultHours)."
+    Write-Host "Daily default setting will be updated to $SetDefaultHours hours upon saving."
 } elseif ($SetDefaultHours -ne -1) {
     Write-Warning "Invalid command-line value for SetDefaultHours: '$SetDefaultHours'. This parameter is ignored for default setting."
 }
@@ -86,7 +86,7 @@ if ($SetDefaultHours -gt 0) {
 if ($SetDefaultMinutes -gt 0) { # Takes precedence over SetDefaultHours for $SaveFileDefaultMins
     $SaveFileDefaultMins = $SetDefaultMinutes
     $CurrentDayStartMins = $SetDefaultMinutes 
-    Write-Host "Daily default setting will be updated to $SetDefaultMinutes minutes upon saving (due to -SetDefaultMinutes)."
+    Write-Host "Daily default setting will be updated to $SetDefaultMinutes minutes upon saving."
 } elseif ($SetDefaultMinutes -ne -1) {
     Write-Warning "Invalid command-line value for SetDefaultMinutes: '$SetDefaultMinutes'. This parameter is ignored for default setting."
 }
@@ -103,7 +103,7 @@ if ($CurrentDayStartMins -eq $MinsLoadedFromFileOrHardcoded -and `
 if ($SetTodayHours -gt 0) {
     $calculatedMins = $SetTodayHours * 60
     if ($CurrentDayStartMins -ne $calculatedMins) { 
-        Write-Host "Command-line override for this session's new day start time: $SetTodayHours hours ($calculatedMins minutes) (due to -SetTodayHours)."
+        Write-Host "Command-line override for this session's new day start time: $SetTodayHours hours."
     }
     $CurrentDayStartMins = $calculatedMins
 } elseif ($SetTodayHours -ne -1) {
@@ -112,7 +112,7 @@ if ($SetTodayHours -gt 0) {
 
 if ($SetTodayMinutes -gt 0) { # Takes precedence over SetTodayHours for $CurrentDayStartMins
     if ($CurrentDayStartMins -ne $SetTodayMinutes) { 
-        Write-Host "Command-line override for this session's new day start time: $SetTodayMinutes minutes (due to -SetTodayMinutes)."
+        Write-Host "Command-line override for this session's new day start time: $SetTodayMinutes minutes."
     }
     $CurrentDayStartMins = $SetTodayMinutes
 } elseif ($SetTodayMinutes -ne -1) {
@@ -124,19 +124,8 @@ $CurrentDate = (Get-Date).Date
 $RemainingSeconds = $CurrentDayStartMins * 60 # Default for a new day, potentially modified by CLI args.
 
 if (($CurrentDate -eq $LastRun)) { # Same day as last run
-    if ($null -ne $JsonData -and $null -ne $JsonData.RemainingMinutes) {
-        try {
-            $loadedMins = [int]$JsonData.RemainingMinutes
-            if ($loadedMins -lt 0) { 
-                Write-Warning "Loaded 'RemainingMinutes' ('$loadedMins') for current session is negative. Resetting to 0."
-                $loadedMins = 0
-            }
-            $RemainingSeconds = $loadedMins * 60 # Override with saved session time
-            Write-Host "Loaded saved session: $loadedMins minutes from $($LastRun.ToString('yyyy-MM-dd'))."
-        } catch {
-             Write-Warning "Error parsing 'RemainingMinutes' ('$($JsonData.RemainingMinutes)') for current session. Using daily default for session time."
-        }
-    }
+    $RemainingSeconds = $StoredSecs # Override with saved session time
+    Write-Host "Loaded saved session: $([Math]::Ceiling($StoredSecs / 60)) minutes from $($LastRun.ToString('yyyy-MM-dd'))."
 }
 
 # Apply Ad-hoc Time Adjustments
@@ -184,13 +173,13 @@ if ($CurrentDate -gt $LastRun) {
     }
     Write-Host "It's a new day ($($CurrentDate.ToString('yyyy-MM-dd')))! Resetting bank to $duration $unit."
 } elseif ($RemainingSeconds -le 0) { 
-    Write-Host "Focus bank empty from session on $($LastRun.ToString('yyyy-MM-dd')). Waiting for new day to reset."
+    Write-Host "Waiting for new day to reset."
 }
 
 # Streak Logic
 if ($CurrentDate -gt $LastStreakUpdate) { 
     if (($LastStreakUpdate.AddDays(1)) -eq $CurrentDate) { # Consecutive day
-        if ($PrevDayEndSecs -le 0) { # Bank was empty at end of previous tracked day
+        if ($StoredSecs -le 0) { # Bank was empty at end of previous tracked day
             $Streak++ 
             Write-Host "Streak advances! Day $Streak."
         } else { 
