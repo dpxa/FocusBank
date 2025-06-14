@@ -1,14 +1,3 @@
-param ( 
-    [int]$SetTodayMinutes = -1,
-    [int]$SetDefaultMinutes = -1,
-    [int]$AddMinutes = 0,
-    [int]$SubtractMinutes = 0,
-    [int]$SetDefaultHours = -1,
-    [int]$SetTodayHours = -1,
-    [int]$AddHours = 0,
-    [int]$SubtractHours = 0
-)
-
 # Constants
 $SaveFileName = "focusbank_data.json" 
 $SaveFilePath = Join-Path -Path $PSScriptRoot -ChildPath $SaveFileName 
@@ -22,6 +11,255 @@ $Streak = 0
 $LastStreakUpdate = (Get-Date).AddDays(-2).Date # Initialize to two days ago for correct streak evaluation on first run.
 $StoredSecs = 1 # Default to non-zero to distinguish from an actual empty bank for streak logic on first run.
 $JsonData = $null
+
+# Menu Variables
+$SetTodayMinutes = -1
+$SetDefaultMinutes = -1
+$AddMinutes = 0
+$SubtractMinutes = 0
+$SetDefaultHours = -1
+$SetTodayHours = -1
+$AddHours = 0
+$SubtractHours = 0
+
+function Show-Menu {
+    Clear-Host
+    Write-Host "=== Focus Bank Menu ===" -ForegroundColor Cyan
+    Write-Host "1. Start Timer (with current settings)"
+    Write-Host "2. Set Default Time (saved for future sessions)"
+    Write-Host "3. Set Today's Time (this session only)"
+    Write-Host "4. Add Time to Current Session"
+    Write-Host "5. Subtract Time from Current Session"
+    Write-Host "6. View Current Status"
+    Write-Host "7. Exit"
+    Write-Host ""
+}
+
+function Get-MenuChoice {
+    do {
+        $choice = Read-Host "Select an option (1-7)"
+        if ($choice -match '^[1-7]$') {
+            return [int]$choice
+        }
+        Write-Host "Invalid choice. Please enter 1-7." -ForegroundColor Red
+    } while ($true)
+}
+
+function Set-DefaultTime {
+    Write-Host "`nSet Default Time (saved for future sessions)" -ForegroundColor Yellow
+    Write-Host "1. Set in hours"
+    Write-Host "2. Set in minutes"
+    $choice = Read-Host "Choose option (1-2)"
+    
+    if ($choice -eq "1") {
+        do {
+            $hours = Read-Host "Enter hours (positive number)"
+            if ($hours -match '^\d+$' -and [int]$hours -gt 0) {
+                $script:SetDefaultHours = [int]$hours
+                $script:SetDefaultMinutes = -1
+                Write-Host "Default time set to $hours hours." -ForegroundColor Green
+                return $true
+            }
+            Write-Host "Please enter a positive number." -ForegroundColor Red
+        } while ($true)
+    } elseif ($choice -eq "2") {
+        do {
+            $minutes = Read-Host "Enter minutes (positive number)"
+            if ($minutes -match '^\d+$' -and [int]$minutes -gt 0) {
+                $script:SetDefaultMinutes = [int]$minutes
+                $script:SetDefaultHours = -1
+                Write-Host "Default time set to $minutes minutes." -ForegroundColor Green
+                return $true
+            }
+            Write-Host "Please enter a positive number." -ForegroundColor Red
+        } while ($true)
+    } else {
+        Write-Host "Invalid choice. Returning to main menu." -ForegroundColor Red
+        return $false
+    }
+}
+
+function Set-TodayTime {
+    Write-Host "`nSet Today's Time (this session only)" -ForegroundColor Yellow
+    Write-Host "1. Set in hours"
+    Write-Host "2. Set in minutes"
+    $choice = Read-Host "Choose option (1-2)"
+    
+    if ($choice -eq "1") {
+        do {
+            $hours = Read-Host "Enter hours (positive number)"
+            if ($hours -match '^\d+$' -and [int]$hours -gt 0) {
+                $script:SetTodayHours = [int]$hours
+                $script:SetTodayMinutes = -1
+                Write-Host "Today's time set to $hours hours." -ForegroundColor Green
+                return $true
+            }
+            Write-Host "Please enter a positive number." -ForegroundColor Red
+        } while ($true)
+    } elseif ($choice -eq "2") {
+        do {
+            $minutes = Read-Host "Enter minutes (positive number)"
+            if ($minutes -match '^\d+$' -and [int]$minutes -gt 0) {
+                $script:SetTodayMinutes = [int]$minutes
+                $script:SetTodayHours = -1
+                Write-Host "Today's time set to $minutes minutes." -ForegroundColor Green
+                return $true
+            }
+            Write-Host "Please enter a positive number." -ForegroundColor Red
+        } while ($true)
+    } else {
+        Write-Host "Invalid choice. Returning to main menu." -ForegroundColor Red
+        return $false
+    }
+}
+
+function Add-Time {
+    Write-Host "`nAdd Time to Current Session" -ForegroundColor Yellow
+    Write-Host "1. Add hours"
+    Write-Host "2. Add minutes"
+    $choice = Read-Host "Choose option (1-2)"
+    
+    if ($choice -eq "1") {
+        do {
+            $hours = Read-Host "Enter hours to add (positive number)"
+            if ($hours -match '^\d+$' -and [int]$hours -gt 0) {
+                $script:AddHours = [int]$hours
+                Write-Host "Will add $hours hours to current session." -ForegroundColor Green
+                return $true
+            }
+            Write-Host "Please enter a positive number." -ForegroundColor Red
+        } while ($true)
+    } elseif ($choice -eq "2") {
+        do {
+            $minutes = Read-Host "Enter minutes to add (positive number)"
+            if ($minutes -match '^\d+$' -and [int]$minutes -gt 0) {
+                $script:AddMinutes = [int]$minutes
+                Write-Host "Will add $minutes minutes to current session." -ForegroundColor Green
+                return $true
+            }
+            Write-Host "Please enter a positive number." -ForegroundColor Red
+        } while ($true)
+    } else {
+        Write-Host "Invalid choice. Returning to main menu." -ForegroundColor Red
+        return $false
+    }
+}
+
+function Subtract-Time {
+    Write-Host "`nSubtract Time from Current Session" -ForegroundColor Yellow
+    Write-Host "1. Subtract hours"
+    Write-Host "2. Subtract minutes"
+    $choice = Read-Host "Choose option (1-2)"
+    
+    if ($choice -eq "1") {
+        do {
+            $hours = Read-Host "Enter hours to subtract (positive number)"
+            if ($hours -match '^\d+$' -and [int]$hours -gt 0) {
+                $script:SubtractHours = [int]$hours
+                Write-Host "Will subtract $hours hours from current session." -ForegroundColor Green
+                return $true
+            }
+            Write-Host "Please enter a positive number." -ForegroundColor Red
+        } while ($true)
+    } elseif ($choice -eq "2") {
+        do {
+            $minutes = Read-Host "Enter minutes to subtract (positive number)"
+            if ($minutes -match '^\d+$' -and [int]$minutes -gt 0) {
+                $script:SubtractMinutes = [int]$minutes
+                Write-Host "Will subtract $minutes minutes from current session." -ForegroundColor Green
+                return $true
+            }
+            Write-Host "Please enter a positive number." -ForegroundColor Red
+        } while ($true)
+    } else {
+        Write-Host "Invalid choice. Returning to main menu." -ForegroundColor Red
+        return $false
+    }
+}
+
+# Main Menu Loop
+do {
+    Show-Menu
+    $menuChoice = Get-MenuChoice
+    
+    switch ($menuChoice) {
+        1 { 
+            # Start Timer - break out of menu loop to continue with existing logic
+            break 
+        }
+        2 { 
+            $result = Set-DefaultTime
+            if ($result) {
+                Read-Host "`nPress Enter to return to menu"
+            }
+        }
+        3 { 
+            $result = Set-TodayTime
+            if ($result) {
+                Read-Host "`nPress Enter to return to menu"
+            }
+        }
+        4 { 
+            $result = Add-Time
+            if ($result) {
+                Read-Host "`nPress Enter to return to menu"
+            }
+        }
+        5 { 
+            $result = Subtract-Time
+            if ($result) {
+                Read-Host "`nPress Enter to return to menu"
+            }
+        }
+        6 { 
+            Write-Host "`nCurrent Status:" -ForegroundColor Green
+            Write-Host "Default time: $($SaveFileDefaultMins) minutes"
+            
+            # Load and display saved state
+            if (Test-Path $SaveFilePath) {
+                try {
+                    $tempJson = Get-Content $SaveFilePath | ConvertFrom-Json
+                    if ($null -ne $tempJson.RemainingMinutes) {
+                        Write-Host "Saved time: $($tempJson.RemainingMinutes) minutes"
+                    }
+                    if ($null -ne $tempJson.LastRunDate) {
+                        $lastDate = ([datetime]$tempJson.LastRunDate).Date
+                        Write-Host "Last run: $($lastDate.ToString('yyyy-MM-dd'))"
+                    }
+                    if ($null -ne $tempJson.Streak) {
+                        Write-Host "Current streak: Day $($tempJson.Streak)"
+                    }
+                } catch {
+                    Write-Host "Error reading save file details." -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host "No save file found - this will be a new session."
+            }
+            
+            # Show pending menu selections
+            $pendingChanges = @()
+            if ($SetDefaultHours -gt 0) { $pendingChanges += "Set default: $SetDefaultHours hours" }
+            if ($SetDefaultMinutes -gt 0) { $pendingChanges += "Set default: $SetDefaultMinutes minutes" }
+            if ($SetTodayHours -gt 0) { $pendingChanges += "Set today: $SetTodayHours hours" }
+            if ($SetTodayMinutes -gt 0) { $pendingChanges += "Set today: $SetTodayMinutes minutes" }
+            if ($AddHours -gt 0) { $pendingChanges += "Add: $AddHours hours" }
+            if ($AddMinutes -gt 0) { $pendingChanges += "Add: $AddMinutes minutes" }
+            if ($SubtractHours -gt 0) { $pendingChanges += "Subtract: $SubtractHours hours" }
+            if ($SubtractMinutes -gt 0) { $pendingChanges += "Subtract: $SubtractMinutes minutes" }
+            
+            if ($pendingChanges.Count -gt 0) {
+                Write-Host "`nPending changes for next timer start:" -ForegroundColor Yellow
+                $pendingChanges | ForEach-Object { Write-Host "  - $_" }
+            }
+            
+            Read-Host "`nPress Enter to return to menu"
+        }
+        7 { 
+            Write-Host "Goodbye!" -ForegroundColor Green
+            exit 
+        }
+    }
+} while ($menuChoice -ne 1)
 
 # Load Saved State
 if (Test-Path $SaveFilePath) { 
@@ -68,7 +306,7 @@ if (Test-Path $SaveFilePath) {
     }
 }
 
-# Process Command-Line Arguments
+# Process Menu Selections (replaces command-line argument processing)
 # $MinsLoadedFromFileOrHardcoded captures $CurrentDayStartMins state after file load, before CLI modifications.
 $MinsLoadedFromFileOrHardcoded = $CurrentDayStartMins 
 
