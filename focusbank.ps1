@@ -377,13 +377,13 @@ if ($SetDefaultHours -gt 0) {
     [int]$calculatedMins = $SetDefaultHours * 60
     $script:SaveFileDefaultMins = $calculatedMins
     $script:CurrentDayStartMins = $calculatedMins 
-    Write-Host "Daily default setting will be updated to $SetDefaultHours hours upon saving."
+    Write-Host "Daily default setting will be updated to $SetDefaultHours hours."
 }
 
 if ($SetDefaultMinutes -gt 0) {
     $script:SaveFileDefaultMins = $SetDefaultMinutes
     $script:CurrentDayStartMins = $SetDefaultMinutes 
-    Write-Host "Daily default setting will be updated to $SetDefaultMinutes minutes upon saving."
+    Write-Host "Daily default setting will be updated to $SetDefaultMinutes minutes."
 }
 
 if ($CurrentDayStartMins -eq $MinsLoadedFromFileOrHardcoded -and `
@@ -458,17 +458,11 @@ if ($CurrentDate -gt $LastRun) {
     }
 
     Write-Host "It's a new day ($($CurrentDate.ToString('yyyy-MM-dd')))! Resetting bank to $duration $unit."
-} elseif ($RemainingSeconds -le 0) { 
-    Write-Host "Waiting for new day to reset."
-    Read-Host "`nPress any key to exit"
 }
 
 if ($CurrentDate -gt $LastStreakUpdate) { 
     if (($LastStreakUpdate.AddDays(1)) -eq $CurrentDate) {
-        if ($StoredSecs -le 0) {
-            $script:Streak++ 
-            Write-Host "Streak advances! Day $Streak."
-        } else { 
+        if ($StoredSecs -gt 0) {
             $script:Streak = 0 
             Write-Host "Streak Reset. Day 0."
         }
@@ -478,7 +472,7 @@ if ($CurrentDate -gt $LastStreakUpdate) {
     }
     $script:LastStreakUpdate = $CurrentDate 
 } else { 
-    Write-Host "Current streak: Day $($Streak + 1)."
+    Write-Host "Current streak: Day $Streak."
 }
 
 try { 
@@ -493,6 +487,7 @@ try {
             Start-Sleep -Seconds 1 
             $RemainingSeconds--
         }
+        $script:Streak++
         Write-Host "`rTime's up! Session complete."
         Read-Host "`nPress any key to exit"
     }
@@ -512,6 +507,5 @@ try {
     
     try { 
         $saveDataObj | ConvertTo-Json | Set-Content -Path $SaveFilePath -Force 
-        Write-Host "`nProgress saved: $saveMins minutes. Exiting." 
     } catch { Write-Error "Failed to save progress to $SaveFilePath : $($_.Exception.Message)" }
 }
