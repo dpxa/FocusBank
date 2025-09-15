@@ -2,12 +2,16 @@ $SaveFileName = "focusbank_data.json"
 $SaveFilePath = Join-Path -Path $PSScriptRoot -ChildPath $SaveFileName 
 $HardcodedDefaultMins = 8 * 60 
 
-$CurrentDayStartMins = $HardcodedDefaultMins 
-$SaveFileDefaultMins = $HardcodedDefaultMins 
-$LastRun = (Get-Date).AddDays(-1).Date
-$Streak = 0 
-$LastStreakUpdate = (Get-Date).AddDays(-2).Date
-$StoredSecs = 1
+# how many minutes to start with for the current day/session
+$CurrentDayStartMins = $HardcodedDefaultMins
+# when the script was last ran
+$LastRun = (Get-Date).Date
+# current streak count
+$Streak = 0
+# when the streak was last updated
+$LastStreakUpdate = $null
+# seconds remaining in the current session
+$StoredSecs = $null
 $JsonData = $null
 
 $SetDefaultMinutes = -1
@@ -42,6 +46,7 @@ function Get-MenuChoice {
     } while ($true)
 }
 
+# save default time and optionally adjust remaining time if needed
 function Save-Configuration {
     param(
         $NewDefaultMins,
@@ -53,7 +58,7 @@ function Save-Configuration {
     try {
         $existingData = @{}
         if (Test-Path $SaveFilePath) {
-            $existingData = Get-Content $SaveFilePath | ConvertFrom-Json -AsHashtable
+            $existingData = Get-Content $SaveFilePath | ConvertFrom-Json
         }
 
         $existingData.ConfiguredInitialMinutes = [int]$NewDefaultMins
@@ -62,7 +67,6 @@ function Save-Configuration {
             $newDefaultSecs = $NewDefaultMins * 60
             if ($CurrentRemainingSecs -gt $newDefaultSecs) {
                 $existingData.RemainingMinutes = [int]$NewDefaultMins
-                Write-Host "Current session time reduced to match new default: $NewDefaultMins minutes" -ForegroundColor Yellow
             } else {
                 $existingData.RemainingMinutes = [int][Math]::Ceiling($CurrentRemainingSecs / 60)
             }
@@ -72,10 +76,10 @@ function Save-Configuration {
             }
         }
         
-        if (-not $existingData.ContainsKey('LastRunDate')) { $existingData.LastRunDate = (Get-Date).AddDays(-1).ToString("o") }
+        if (-not $existingData.ContainsKey('LastRunDate')) { $existingData.LastRunDate = $null }
         if (-not $existingData.ContainsKey('Streak')) { $existingData.Streak = 0 }
-        if (-not $existingData.ContainsKey('LastStreakUpdateDate')) { $existingData.LastStreakUpdateDate = (Get-Date).AddDays(-2).ToString("o") }
-        
+        if (-not $existingData.ContainsKey('LastStreakUpdateDate')) { $existingData.LastStreakUpdateDate = $null }
+
         $existingData | ConvertTo-Json | Set-Content -Path $SaveFilePath -Force
         return $true
     } catch {
@@ -106,12 +110,11 @@ function Set-DefaultTime {
                 $minutes = $hours * 60
                 $script:SetDefaultHours = $hours
                 $script:SetDefaultMinutes = -1
-                $script:SaveFileDefaultMins = $minutes
 
                 if (Save-Configuration -NewDefaultMins $minutes -CurrentRemainingSecs $currentRemainingSecs) {
                     Write-Host "Default time set to $hours hours." -ForegroundColor Green
                 } else {
-                    Write-Host "Default time save failed - will retry later." -ForegroundColor Yellow
+                    Write-Host "Default time save failed." -ForegroundColor Yellow
                 }
                 return
             }
@@ -124,12 +127,11 @@ function Set-DefaultTime {
             if ($minutes -match '^\d+$' -and $minutes -gt 0) {
                 $script:SetDefaultMinutes = $minutes
                 $script:SetDefaultHours = -1
-                $script:SaveFileDefaultMins = $minutes
 
                 if (Save-Configuration -NewDefaultMins $minutes -CurrentRemainingSecs $currentRemainingSecs) {
                     Write-Host "Default time set to $minutes minutes." -ForegroundColor Green
                 } else {
-                    Write-Host "Default time save failed - will retry later." -ForegroundColor Yellow
+                    Write-Host "Default time save failed." -ForegroundColor Yellow
                 }
                 return
             }
@@ -248,17 +250,15 @@ function Remove-Time {
 }
 function Show-Status {
     Write-Host "`nCurrent Status:" -ForegroundColor Green
-    Write-Host "Default time: $($SaveFileDefaultMins) minutes"
     
     if (Test-Path $SaveFilePath) {
         try {
             $tempJson = Get-Content $SaveFilePath | ConvertFrom-Json
+            if ($null -ne $tempJson.ConfiguredInitialMinutes) {
+                Write-Host "Default time: $($tempJson.ConfiguredInitialMinutes) minutes"
+            }
             if ($null -ne $tempJson.RemainingMinutes) {
                 Write-Host "Saved time: $($tempJson.RemainingMinutes) minutes"
-            }
-            if ($null -ne $tempJson.LastRunDate) {
-                $lastDate = ([datetime]$tempJson.LastRunDate).Date
-                Write-Host "Last run: $($lastDate.ToString('yyyy-MM-dd'))"
             }
             if ($null -ne $tempJson.Streak) {
                 Write-Host "Current streak: Day $($tempJson.Streak)"
@@ -326,19 +326,16 @@ if (Test-Path $SaveFilePath) {
         
         if ($null -ne $JsonData.ConfiguredInitialMinutes) {
             try {
-                $cfgMins = $JsonData.ConfiguredInitialMinutes
-                if ($cfgMins -gt 0) {
-                    $script:CurrentDayStartMins = $cfgMins 
-                    $script:SaveFileDefaultMins = $cfgMins
+                if ($JsonData.ConfiguredInitialMinutes -gt 0) {
+                    $script:CurrentDayStartMins = $JsonData.ConfiguredInitialMinutes
                 } else { Write-Warning "Invalid 'ConfiguredInitialMinutes' ('$($JsonData.ConfiguredInitialMinutes)') in save file." }
             } catch { Write-Warning "Error parsing 'ConfiguredInitialMinutes' ('$($JsonData.ConfiguredInitialMinutes)') from save file. Error: $($_.Exception.Message)" }
         }
 
         if ($null -ne $JsonData.RemainingMinutes) {
             try {
-                $remMins = $JsonData.RemainingMinutes
-                if ($remMins -ge 0) { 
-                    $script:StoredSecs = $remMins * 60 
+                if ($JsonData.RemainingMinutes -ge 0) { 
+                    $script:StoredSecs = $JsonData.RemainingMinutes * 60 
                 } else { Write-Warning "Invalid 'RemainingMinutes' ('$($JsonData.RemainingMinutes)') in save file." }
             } catch { Write-Warning "Error parsing 'RemainingMinutes' ('$($JsonData.RemainingMinutes)') from save file. Error: $($_.Exception.Message)" }
         }
@@ -351,11 +348,10 @@ if (Test-Path $SaveFilePath) {
 
         if ($null -ne $JsonData.Streak) {
             try {
-                $streakVal = $JsonData.Streak
-                if ($streakVal -ge 0) { 
-                    $script:Streak = $streakVal 
+                if ($JsonData.Streak -ge 0) { 
+                    $script:Streak = $JsonData.Streak
                 } else { 
-                    Write-Warning "Invalid 'Streak' ('$streakVal') in save file." 
+                    Write-Warning "Invalid 'Streak' ('$($JsonData.Streak)') in save file." 
                 }
             } catch { Write-Warning "Error parsing 'Streak' ('$($JsonData.Streak)') from save file. Error: $($_.Exception.Message)" }
         }
@@ -375,13 +371,11 @@ $MinsLoadedFromFileOrHardcoded = $CurrentDayStartMins
 
 if ($SetDefaultHours -gt 0) {
     [int]$calculatedMins = $SetDefaultHours * 60
-    $script:SaveFileDefaultMins = $calculatedMins
     $script:CurrentDayStartMins = $calculatedMins 
     Write-Host "Daily default setting will be updated to $SetDefaultHours hours."
 }
 
 if ($SetDefaultMinutes -gt 0) {
-    $script:SaveFileDefaultMins = $SetDefaultMinutes
     $script:CurrentDayStartMins = $SetDefaultMinutes 
     Write-Host "Daily default setting will be updated to $SetDefaultMinutes minutes."
 }
@@ -413,8 +407,13 @@ $CurrentDate = (Get-Date).Date
 $RemainingSeconds = $CurrentDayStartMins * 60
 
 if (($CurrentDate -eq $LastRun)) {
-    $RemainingSeconds = $StoredSecs
-    Write-Host "Loaded saved session: $([Math]::Ceiling($StoredSecs / 60)) minutes from $($LastRun.ToString('yyyy-MM-dd'))."
+    if ($null -ne $StoredSecs) {
+        $RemainingSeconds = $StoredSecs
+        Write-Host "Loaded saved session: $([Math]::Ceiling($StoredSecs / 60)) minutes from $($LastRun.ToString('yyyy-MM-dd'))."
+    } else {
+        $RemainingSeconds = $CurrentDayStartMins * 60
+        Write-Host "No previous session for today. Starting with $CurrentDayStartMins minutes."
+    }
 }
 
 if ($AddHours -gt 0) {
@@ -445,10 +444,6 @@ if ($SubtractMinutes -gt 0) {
     Write-Host "Subtracted $SubtractMinutes minute(s). New time: $([Math]::Ceiling($RemainingSeconds/60)) min."
 }
 
-if (-not (Test-Path $SaveFilePath)) {
-    Write-Host "No save file found. Starting new session with $CurrentDayStartMins minutes default."
-}
-
 if ($CurrentDate -gt $LastRun) { 
     $duration = $CurrentDayStartMins
     $unit = "minute(s)"
@@ -461,18 +456,18 @@ if ($CurrentDate -gt $LastRun) {
 }
 
 if ($CurrentDate -gt $LastStreakUpdate) { 
-    if (($LastStreakUpdate.AddDays(1)) -eq $CurrentDate) {
+    if ($null -ne $LastStreakUpdate -and $LastStreakUpdate.AddDays(1) -eq $CurrentDate) {
         if ($StoredSecs -gt 0) {
             $script:Streak = 0 
-            Write-Host "Streak Reset. Day 0."
+            Write-Host "Day $Streak."
         }
     } else {
         $script:Streak = 0 
-        Write-Host "Streak Reset. Day 0."
+        Write-Host "Day $Streak."
     }
     $script:LastStreakUpdate = $CurrentDate 
 } else { 
-    Write-Host "Current streak: Day $Streak."
+    Write-Host "Day $Streak."
 }
 
 try { 
@@ -502,7 +497,6 @@ try {
         LastRunDate      = (Get-Date).ToString("o") 
         Streak           = $Streak 
         LastStreakUpdateDate = $LastStreakUpdate.ToString("o") 
-        ConfiguredInitialMinutes = $script:SaveFileDefaultMins
     }
     
     try { 
