@@ -52,13 +52,15 @@ function Save-Configuration {
         $NewDefaultMins,
         $CurrentRemainingSecs = -1
     )
-
-    Write-Host $NewDefaultMins
     
     try {
-        $existingData = @{}
+        $existingData = @{
+        }
         if (Test-Path $SaveFilePath) {
-            $existingData = Get-Content $SaveFilePath | ConvertFrom-Json
+            $jsonObj = Get-Content $SaveFilePath | ConvertFrom-Json
+            if ($jsonObj) {
+                $jsonObj.PSObject.Properties | ForEach-Object { $existingData[$_.Name] = $_.Value }
+            }
         }
 
         $existingData.ConfiguredInitialMinutes = [int]$NewDefaultMins
