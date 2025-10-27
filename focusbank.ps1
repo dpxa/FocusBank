@@ -494,13 +494,26 @@ try {
     $saveMins = [Math]::Ceiling($RemainingSeconds / 60) 
     if ($saveMins -lt 0) { $saveMins = 0 }
 
-    $saveDataObj = @{ 
-        RemainingMinutes = $saveMins 
-        LastRunDate      = (Get-Date).ToString("o") 
-        Streak           = $Streak 
-        LastStreakUpdateDate = $LastStreakUpdate.ToString("o") 
+    $saveDataObj = @{}
+    if (Test-Path $SaveFilePath) {
+        try {
+            $jsonObj = Get-Content $SaveFilePath | ConvertFrom-Json
+            if ($jsonObj) {
+                $jsonObj.PSObject.Properties | ForEach-Object { $saveDataObj[$_.Name] = $_.Value }
+            }
+        } catch {
+            # If loading fails, proceed with empty hashtable
+        }
     }
-    
+
+    $saveDataObj.RemainingMinutes = $saveMins
+    $saveDataObj.LastRunDate = (Get-Date).ToString("o")
+    $saveDataObj.Streak = $Streak
+    $saveDataObj.LastStreakUpdateDate = $LastStreakUpdate.ToString("o")
+
+    # Ensure ConfiguredInitialMinutes is preserved if it exists
+    if (-not $saveDataObj.ContainsKey('ConfiguredInitialMinutes')) { $saveDataObj.ConfiguredInitialMinutes = $null }
+
     try { 
         $saveDataObj | ConvertTo-Json | Set-Content -Path $SaveFilePath -Force 
     } catch { Write-Error "Failed to save progress to $SaveFilePath : $($_.Exception.Message)" }
