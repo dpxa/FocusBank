@@ -1,6 +1,6 @@
 $SaveFileName = "focusbank_data.json" 
 $SaveFilePath = Join-Path -Path $PSScriptRoot -ChildPath $SaveFileName 
-$HardcodedDefaultMins = 8 * 60 
+$HardcodedDefaultMins = 4 * 60 
 
 # how many minutes to start with for the current day/session
 $CurrentDayStartMins = $HardcodedDefaultMins
@@ -460,11 +460,11 @@ if ($CurrentDate -gt $LastRun) {
 if ($CurrentDate -gt $LastStreakUpdate) { 
     if ($null -ne $LastStreakUpdate -and $LastStreakUpdate.AddDays(1) -eq $CurrentDate) {
         if ($StoredSecs -gt 0) {
-            $script:Streak = 0 
+            $script:Streak = 1 
             Write-Host "Day $Streak."
         }
     } else {
-        $script:Streak = 0 
+        $script:Streak = 1 
         Write-Host "Day $Streak."
     }
     $script:LastStreakUpdate = $CurrentDate 
