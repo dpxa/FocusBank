@@ -408,7 +408,7 @@ if ($SetTodayMinutes -gt 0) {
 $CurrentDate = (Get-Date).Date 
 $RemainingSeconds = $CurrentDayStartMins * 60
 
-if (($CurrentDate -eq $LastRun)) {
+if (($CurrentDate -eq $LastRun) -and $SetTodayMinutes -eq -1 -and $SetTodayHours -eq -1) {
     if ($null -ne $StoredSecs) {
         $RemainingSeconds = $StoredSecs
         Write-Host "Loaded saved session: $([Math]::Ceiling($StoredSecs / 60)) minutes from $($LastRun.ToString('yyyy-MM-dd'))."
